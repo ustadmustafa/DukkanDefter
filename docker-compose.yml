@@ -1,0 +1,30 @@
+# Kullanım:
+# 1) Sunucuda ./secrets/google_sa.json dosyasını oluşturun (veya GOOGLE_SA_HOST_PATH ile yol verin).
+# 2) SPREADSHEET_ID ortam değişkenini export edin veya aşağıdaki satırı düzenleyin.
+# 3) docker compose up -d --build
+#
+# Örnek:
+#   export SPREADSHEET_ID="abc123..."
+#   export GOOGLE_SA_HOST_PATH="/var/dukkan/sa.json"
+#   docker compose up -d --build
+
+services:
+  web:
+    build: .
+    image: dukkan-defter:latest
+    container_name: dukkan-defter
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      BEHIND_REVERSE_PROXY: "true"
+      ConnectionStrings__DefaultConnection: "Data Source=/app/data/app.db"
+      GoogleSheets__CredentialsPath: "/secrets/google_sa.json"
+      GoogleSheets__SpreadsheetId: "${SPREADSHEET_ID:-}"
+    volumes:
+      - dukkan-sqlite:/app/data
+      - ${GOOGLE_SA_HOST_PATH:-./secrets/google_sa.json}:/secrets/google_sa.json:ro
+
+volumes:
+  dukkan-sqlite:

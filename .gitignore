@@ -1,0 +1,9 @@
+secrets/*.json
+!secrets/.gitkeep
+**/bin/
+**/obj/
+*.user
+*.db
+*.db-shm
+*.db-wal
+.vs/

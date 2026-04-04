@@ -1,0 +1,17 @@
+**/bin/
+**/obj/
+**/.vs/
+**/.vscode/
+**/.git/
+**/.gitignore
+**/*.user
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/wwwroot/uploads/*
+!**/wwwroot/uploads/.gitkeep
+**/tessdata/*
+**/node_modules/
+**/ApiEndpoints.json
+**/*.md
+docker-compose.override.yml

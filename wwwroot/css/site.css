@@ -1,0 +1,145 @@
+html {
+  font-size: 15px;
+}
+
+@media (min-width: 768px) {
+  html {
+    font-size: 16px;
+  }
+}
+
+body.ledger-app {
+  font-family: "DM Sans", system-ui, -apple-system, sans-serif;
+  margin-bottom: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(165deg, #eef6f5 0%, #e8f0ee 38%, #f4f7f6 100%);
+  color: #1e293b;
+}
+
+.ledger-nav {
+  background: linear-gradient(120deg, #0f766e 0%, #0d9488 45%, #115e59 100%) !important;
+}
+
+.ledger-brand-icon {
+  width: 2.25rem;
+  height: 2.25rem;
+  font-size: 1.15rem;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.ledger-footer {
+  margin-top: auto;
+  background: linear-gradient(120deg, #134e4a 0%, #0f766e 100%);
+}
+
+.ledger-card {
+  background: #fff;
+  border-radius: 1.125rem;
+  box-shadow:
+    0 4px 6px -1px rgba(15, 118, 110, 0.07),
+    0 12px 32px -8px rgba(15, 118, 110, 0.12);
+  border: 1px solid rgba(15, 118, 110, 0.08);
+}
+
+.ledger-card .card-title {
+  color: #0f766e;
+  letter-spacing: -0.02em;
+}
+
+.ledger-table-wrap {
+  border-radius: 0.75rem;
+  overflow: hidden;
+  border: 1px solid rgba(15, 118, 110, 0.12);
+}
+
+.ledger-table thead th {
+  font-weight: 600;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+  background: #f8fafc !important;
+  border-bottom: 2px solid rgba(15, 118, 110, 0.12) !important;
+  white-space: nowrap;
+}
+
+.ledger-table tbody td {
+  vertical-align: middle;
+}
+
+.ledger-table .form-control {
+  border-radius: 0.5rem;
+  border-color: #e2e8f0;
+  min-height: 2.75rem;
+}
+
+@media (min-width: 768px) {
+  .ledger-table .form-control {
+    min-height: 2.5rem;
+  }
+}
+
+.ledger-table .form-control:focus {
+  border-color: #14b8a6;
+  box-shadow: 0 0 0 0.2rem rgba(20, 184, 166, 0.2);
+}
+
+.btn-ledger-primary {
+  background: linear-gradient(135deg, #0d9488, #0f766e);
+  border: none;
+  color: #fff;
+  font-weight: 600;
+  padding: 0.65rem 1.35rem;
+  border-radius: 0.65rem;
+  box-shadow: 0 2px 8px rgba(15, 118, 110, 0.35);
+}
+
+.btn-ledger-primary:hover {
+  background: linear-gradient(135deg, #0f766e, #115e59);
+  color: #fff;
+}
+
+.btn-ledger-outline {
+  border: 2px solid #0d9488;
+  color: #0f766e;
+  font-weight: 600;
+  border-radius: 0.65rem;
+  padding: 0.55rem 1.15rem;
+}
+
+.btn-ledger-outline:hover {
+  background: rgba(13, 148, 136, 0.08);
+  color: #115e59;
+}
+
+.btn-icon-remove {
+  border-radius: 0.5rem;
+  padding: 0.4rem 0.55rem;
+}
+
+.live-total-bar {
+  background: linear-gradient(90deg, rgba(13, 148, 136, 0.1), rgba(13, 148, 136, 0.04));
+  border: 1px solid rgba(13, 148, 136, 0.2);
+  border-radius: 0.75rem;
+}
+
+.btn:focus,
+.btn:active:focus,
+.btn-link.nav-link:focus,
+.form-control:focus,
+.form-check-input:focus {
+  box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem rgba(20, 184, 166, 0.35);
+}
+
+.form-floating > .form-control-plaintext::placeholder,
+.form-floating > .form-control::placeholder {
+  color: var(--bs-secondary-color);
+  text-align: end;
+}
+
+.form-floating > .form-control-plaintext:focus::placeholder,
+.form-floating > .form-control:focus::placeholder {
+  text-align: start;
+}
