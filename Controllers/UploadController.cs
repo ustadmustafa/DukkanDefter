@@ -44,6 +44,15 @@ namespace DukkanDefterOCR.Controllers
                 return RedirectToAction(nameof(Index));
             }
 
+            if (model.KasadanParaCikmadan && !model.KasadanParaCikmadanTutar.HasValue)
+            {
+                TempData["Error"] = "Kasadan para çıkmadan yapılan akbil işaretliyken tutar girin.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            var kasadanEk = model.KasadanParaCikmadan ? model.KasadanParaCikmadanTutar!.Value : 0;
+            var akbilToplam = model.Akbil.Value + kasadanEk;
+
             if (model.Rows == null || model.Rows.Count == 0)
             {
                 TempData["Error"] = "En az bir satır gerekli.";
@@ -82,7 +91,7 @@ namespace DukkanDefterOCR.Controllers
             try
             {
                 var sheetDate = string.IsNullOrWhiteSpace(model.SheetDate) ? "Tarihsiz" : model.SheetDate.Trim();
-                await _googleSheetsService.SaveToSheetAsync(sheetDate, items, model.DevredenAkbil.Value, model.Akbil.Value, ct);
+                await _googleSheetsService.SaveToSheetAsync(sheetDate, items, model.DevredenAkbil.Value, akbilToplam, model.Akbil.Value, ct);
                 TempData["Success"] = $"'{sheetDate}' sekmesine kaydedildi.";
             }
             catch (Exception ex)

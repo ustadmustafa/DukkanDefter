@@ -38,6 +38,17 @@
                 <input class="form-control form-control-lg text-end" asp-for="Akbil" type="number" inputmode="numeric" step="1" placeholder="0" required />
             </div>
 
+            <div class="mb-4">
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" asp-for="KasadanParaCikmadan" id="chkKasadanPara" />
+                    <label class="form-check-label" for="chkKasadanPara">Kasadan para çıkmadan yapılan akbil</label>
+                </div>
+                <div id="kasadanTutarGroup" class="@(Model.KasadanParaCikmadan ? "" : "d-none")">
+                    <label class="form-label fw-semibold small text-uppercase text-muted" style="letter-spacing: .05em;" asp-for="KasadanParaCikmadanTutar">Tutar</label>
+                    <input class="form-control form-control-lg text-end" asp-for="KasadanParaCikmadanTutar" type="number" inputmode="numeric" step="1" placeholder="0" />
+                </div>
+            </div>
+
             <div class="table-responsive ledger-table-wrap mb-3">
                 <table class="table table-hover mb-0 ledger-table" id="rowsTable">
                     <thead>
@@ -93,6 +104,19 @@
             const tbody = document.getElementById('rowsBody');
             const btnAdd = document.getElementById('btnAddRow');
             const liveTotal = document.getElementById('liveTotal');
+            const chkKasadan = document.getElementById('chkKasadanPara');
+            const kasadanGroup = document.getElementById('kasadanTutarGroup');
+            const inpKasadan = kasadanGroup ? kasadanGroup.querySelector('input[type="number"]') : null;
+
+            function syncKasadanPara() {
+                if (!chkKasadan || !kasadanGroup || !inpKasadan) return;
+                const on = chkKasadan.checked;
+                kasadanGroup.classList.toggle('d-none', !on);
+                inpKasadan.required = on;
+                if (!on) inpKasadan.value = '';
+            }
+            if (chkKasadan) chkKasadan.addEventListener('change', syncKasadanPara);
+            syncKasadanPara();
 
             function rowCount() {
                 return tbody.querySelectorAll('tr.data-row').length;

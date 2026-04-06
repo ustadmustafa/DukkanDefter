@@ -12,6 +12,7 @@ namespace DukkanDefterOCR.Services
     {
         private const string DevredenLabel = "Devreden akbil";
         private const string SatilanLabel = "Satılan Akbil";
+        private const string AkbilRowLabel = "Akbil";
 
         private readonly GoogleSheetsOptions _options;
 
@@ -20,7 +21,9 @@ namespace DukkanDefterOCR.Services
             _options = options.Value;
         }
 
-        public async Task SaveToSheetAsync(string sheetName, IList<OCRItem> items, int devredenAkbil, int akbil, CancellationToken ct = default)
+        /// <param name="akbilHesapSatilan">Satılan Akbil formülünde kullanılacak toplam (Akbil + kasadan ek).</param>
+        /// <param name="akbilTabloDeger">Sol tabloda gösterilecek, forma girilen Akbil tutarı.</param>
+        public async Task SaveToSheetAsync(string sheetName, IList<OCRItem> items, int devredenAkbil, int akbilHesapSatilan, int akbilTabloDeger, CancellationToken ct = default)
         {
             if (string.IsNullOrWhiteSpace(_options.CredentialsPath))
                 throw new InvalidOperationException("GoogleSheets:CredentialsPath boş.");
@@ -73,11 +76,13 @@ namespace DukkanDefterOCR.Services
             foreach (var item in items)
                 mainValues.Add(new List<object> { item.Kalem, item.Toplam });
 
+            mainValues.Add(new List<object> { AkbilRowLabel, akbilTabloDeger });
+
             var mainRowCount = mainValues.Count;
             var footerStartRow = mainRowCount + 3;
 
             var previousDevreden = await TryReadDevredenAkbilFromPreviousDayAsync(service, sheetName, ct);
-            var satilanAkbil = akbil + (previousDevreden - devredenAkbil);
+            var satilanAkbil = akbilHesapSatilan + (previousDevreden - devredenAkbil);
 
             var footerValues = new List<IList<object>>
             {
@@ -97,6 +102,354 @@ namespace DukkanDefterOCR.Services
             var footerReq = service.Spreadsheets.Values.Update(footerBody, _options.SpreadsheetId, $"'{escaped}'!C{footerStartRow}:D{footerStartRow + 1}");
             footerReq.ValueInputOption = vo;
             await footerReq.ExecuteAsync(ct);
+
+            spreadsheet = await service.Spreadsheets.Get(_options.SpreadsheetId).ExecuteAsync(ct);
+            var sheet = spreadsheet.Sheets?.FirstOrDefault(s => s.Properties.Title == safeTitle);
+            var sheetId = sheet?.Properties.SheetId;
+            if (sheetId == null)
+                return;
+
+            var formatRequests = BuildLedgerFormatRequests(sheetId.Value, mainRowCount, footerStartRow);
+            if (formatRequests.Count > 0)
+            {
+                await service.Spreadsheets.BatchUpdate(new BatchUpdateSpreadsheetRequest { Requests = formatRequests }, _options.SpreadsheetId).ExecuteAsync(ct);
+            }
+        }
+
+        private static List<Request> BuildLedgerFormatRequests(int sheetId, int mainRowCount, int footerStartRow1Based)
+        {
+            var requests = new List<Request>();
+            var footerRow0 = footerStartRow1Based - 1;
+
+            // Sütun genişlikleri
+            requests.Add(new Request
+            {
+                UpdateDimensionProperties = new UpdateDimensionPropertiesRequest
+                {
+                    Range = new DimensionRange { SheetId = sheetId, Dimension = "COLUMNS", StartIndex = 0, EndIndex = 1 },
+                    Properties = new DimensionProperties { PixelSize = 280 },
+                    Fields = "pixelSize"
+                }
+            });
+            requests.Add(new Request
+            {
+                UpdateDimensionProperties = new UpdateDimensionPropertiesRequest
+                {
+                    Range = new DimensionRange { SheetId = sheetId, Dimension = "COLUMNS", StartIndex = 1, EndIndex = 2 },
+                    Properties = new DimensionProperties { PixelSize = 120 },
+                    Fields = "pixelSize"
+                }
+            });
+            requests.Add(new Request
+            {
+                UpdateDimensionProperties = new UpdateDimensionPropertiesRequest
+                {
+                    Range = new DimensionRange { SheetId = sheetId, Dimension = "COLUMNS", StartIndex = 2, EndIndex = 3 },
+                    Properties = new DimensionProperties { PixelSize = 220 },
+                    Fields = "pixelSize"
+                }
+            });
+            requests.Add(new Request
+            {
+                UpdateDimensionProperties = new UpdateDimensionPropertiesRequest
+                {
+                    Range = new DimensionRange { SheetId = sheetId, Dimension = "COLUMNS", StartIndex = 3, EndIndex = 4 },
+                    Properties = new DimensionProperties { PixelSize = 120 },
+                    Fields = "pixelSize"
+                }
+            });
+
+            requests.Add(new Request
+            {
+                UpdateSheetProperties = new UpdateSheetPropertiesRequest
+                {
+                    Properties = new SheetProperties
+                    {
+                        SheetId = sheetId,
+                        GridProperties = new GridProperties { FrozenRowCount = 1 }
+                    },
+                    Fields = "gridProperties.frozenRowCount"
+                }
+            });
+
+            // Başlık satırı
+            requests.Add(new Request
+            {
+                RepeatCell = new RepeatCellRequest
+                {
+                    Range = new GridRange
+                    {
+                        SheetId = sheetId,
+                        StartRowIndex = 0,
+                        EndRowIndex = 1,
+                        StartColumnIndex = 0,
+                        EndColumnIndex = 2
+                    },
+                    Cell = new CellData
+                    {
+                        UserEnteredFormat = new CellFormat
+                        {
+                            BackgroundColor = ColorFromHex(0x0f766e),
+                            HorizontalAlignment = "CENTER",
+                            VerticalAlignment = "MIDDLE",
+                            TextFormat = new TextFormat
+                            {
+                                Bold = true,
+                                FontSize = 11,
+                                ForegroundColor = ColorFromHex(0xffffff)
+                            },
+                            WrapStrategy = "WRAP"
+                        }
+                    },
+                    Fields = "userEnteredFormat(backgroundColor,horizontalAlignment,verticalAlignment,textFormat,wrapStrategy)"
+                }
+            });
+
+            // Ürün satırları (Toplam ve Akbil hariç)
+            if (mainRowCount > 3)
+            {
+                requests.Add(new Request
+                {
+                    RepeatCell = new RepeatCellRequest
+                    {
+                        Range = new GridRange
+                        {
+                            SheetId = sheetId,
+                            StartRowIndex = 1,
+                            EndRowIndex = mainRowCount - 2,
+                            StartColumnIndex = 0,
+                            EndColumnIndex = 2
+                        },
+                        Cell = new CellData
+                        {
+                            UserEnteredFormat = new CellFormat
+                            {
+                                BackgroundColor = ColorFromHex(0xf8fafc),
+                                VerticalAlignment = "MIDDLE",
+                                WrapStrategy = "WRAP"
+                            }
+                        },
+                        Fields = "userEnteredFormat(backgroundColor,verticalAlignment,wrapStrategy)"
+                    }
+                });
+            }
+
+            var toplamRowIndex = mainRowCount - 2;
+            requests.Add(new Request
+            {
+                RepeatCell = new RepeatCellRequest
+                {
+                    Range = new GridRange
+                    {
+                        SheetId = sheetId,
+                        StartRowIndex = toplamRowIndex,
+                        EndRowIndex = toplamRowIndex + 1,
+                        StartColumnIndex = 0,
+                        EndColumnIndex = 2
+                    },
+                    Cell = new CellData
+                    {
+                        UserEnteredFormat = new CellFormat
+                        {
+                            BackgroundColor = ColorFromHex(0xfef3c7),
+                            VerticalAlignment = "MIDDLE",
+                            TextFormat = new TextFormat { Bold = true, FontSize = 11 },
+                            WrapStrategy = "WRAP"
+                        }
+                    },
+                    Fields = "userEnteredFormat(backgroundColor,verticalAlignment,textFormat,wrapStrategy)"
+                }
+            });
+
+            var akbilRowIndex = mainRowCount - 1;
+            requests.Add(new Request
+            {
+                RepeatCell = new RepeatCellRequest
+                {
+                    Range = new GridRange
+                    {
+                        SheetId = sheetId,
+                        StartRowIndex = akbilRowIndex,
+                        EndRowIndex = akbilRowIndex + 1,
+                        StartColumnIndex = 0,
+                        EndColumnIndex = 2
+                    },
+                    Cell = new CellData
+                    {
+                        UserEnteredFormat = new CellFormat
+                        {
+                            BackgroundColor = ColorFromHex(0xe0f2fe),
+                            VerticalAlignment = "MIDDLE",
+                            TextFormat = new TextFormat { Bold = true, FontSize = 11 },
+                            WrapStrategy = "WRAP"
+                        }
+                    },
+                    Fields = "userEnteredFormat(backgroundColor,verticalAlignment,textFormat,wrapStrategy)"
+                }
+            });
+
+            // Tutar sütunu sayı formatı (sol tablo)
+            if (mainRowCount > 1)
+            {
+                requests.Add(new Request
+                {
+                    RepeatCell = new RepeatCellRequest
+                    {
+                        Range = new GridRange
+                        {
+                            SheetId = sheetId,
+                            StartRowIndex = 1,
+                            EndRowIndex = mainRowCount,
+                            StartColumnIndex = 1,
+                            EndColumnIndex = 2
+                        },
+                        Cell = new CellData
+                        {
+                            UserEnteredFormat = new CellFormat
+                            {
+                                HorizontalAlignment = "RIGHT",
+                                NumberFormat = new NumberFormat { Type = "NUMBER", Pattern = "#,##0" }
+                            }
+                        },
+                        Fields = "userEnteredFormat(horizontalAlignment,numberFormat)"
+                    }
+                });
+            }
+
+            // Sol tablo dış çerçeve + iç yatay çizgiler
+            var borderColor = ColorFromHex(0xcbd5e1);
+            requests.Add(new Request
+            {
+                UpdateBorders = new UpdateBordersRequest
+                {
+                    Range = new GridRange
+                    {
+                        SheetId = sheetId,
+                        StartRowIndex = 0,
+                        EndRowIndex = mainRowCount,
+                        StartColumnIndex = 0,
+                        EndColumnIndex = 2
+                    },
+                    Top = new Border { Style = "SOLID", Width = 2, Color = borderColor },
+                    Bottom = new Border { Style = "SOLID", Width = 2, Color = borderColor },
+                    Left = new Border { Style = "SOLID", Width = 2, Color = borderColor },
+                    Right = new Border { Style = "SOLID", Width = 2, Color = borderColor },
+                    InnerHorizontal = new Border { Style = "SOLID", Width = 1, Color = borderColor },
+                    InnerVertical = new Border { Style = "SOLID", Width = 1, Color = borderColor }
+                }
+            });
+
+            // Akbil bloğu (C:D)
+            requests.Add(new Request
+            {
+                RepeatCell = new RepeatCellRequest
+                {
+                    Range = new GridRange
+                    {
+                        SheetId = sheetId,
+                        StartRowIndex = footerRow0,
+                        EndRowIndex = footerRow0 + 2,
+                        StartColumnIndex = 2,
+                        EndColumnIndex = 4
+                    },
+                    Cell = new CellData
+                    {
+                        UserEnteredFormat = new CellFormat
+                        {
+                            BackgroundColor = ColorFromHex(0xf1f5f9),
+                            VerticalAlignment = "MIDDLE",
+                            WrapStrategy = "WRAP"
+                        }
+                    },
+                    Fields = "userEnteredFormat(backgroundColor,verticalAlignment,wrapStrategy)"
+                }
+            });
+
+            requests.Add(new Request
+            {
+                RepeatCell = new RepeatCellRequest
+                {
+                    Range = new GridRange
+                    {
+                        SheetId = sheetId,
+                        StartRowIndex = footerRow0,
+                        EndRowIndex = footerRow0 + 2,
+                        StartColumnIndex = 2,
+                        EndColumnIndex = 3
+                    },
+                    Cell = new CellData
+                    {
+                        UserEnteredFormat = new CellFormat
+                        {
+                            TextFormat = new TextFormat { Bold = true, FontSize = 10 },
+                            HorizontalAlignment = "LEFT"
+                        }
+                    },
+                    Fields = "userEnteredFormat(textFormat,horizontalAlignment)"
+                }
+            });
+
+            requests.Add(new Request
+            {
+                RepeatCell = new RepeatCellRequest
+                {
+                    Range = new GridRange
+                    {
+                        SheetId = sheetId,
+                        StartRowIndex = footerRow0,
+                        EndRowIndex = footerRow0 + 2,
+                        StartColumnIndex = 3,
+                        EndColumnIndex = 4
+                    },
+                    Cell = new CellData
+                    {
+                        UserEnteredFormat = new CellFormat
+                        {
+                            HorizontalAlignment = "RIGHT",
+                            NumberFormat = new NumberFormat { Type = "NUMBER", Pattern = "#,##0" },
+                            TextFormat = new TextFormat { Bold = true, FontSize = 11 }
+                        }
+                    },
+                    Fields = "userEnteredFormat(horizontalAlignment,numberFormat,textFormat)"
+                }
+            });
+
+            requests.Add(new Request
+            {
+                UpdateBorders = new UpdateBordersRequest
+                {
+                    Range = new GridRange
+                    {
+                        SheetId = sheetId,
+                        StartRowIndex = footerRow0,
+                        EndRowIndex = footerRow0 + 2,
+                        StartColumnIndex = 2,
+                        EndColumnIndex = 4
+                    },
+                    Top = new Border { Style = "SOLID", Width = 2, Color = ColorFromHex(0x0f766e) },
+                    Bottom = new Border { Style = "SOLID", Width = 2, Color = borderColor },
+                    Left = new Border { Style = "SOLID", Width = 2, Color = borderColor },
+                    Right = new Border { Style = "SOLID", Width = 2, Color = borderColor },
+                    InnerHorizontal = new Border { Style = "SOLID", Width = 1, Color = borderColor },
+                    InnerVertical = new Border { Style = "SOLID", Width = 1, Color = borderColor }
+                }
+            });
+
+            return requests;
+        }
+
+        /// <summary>RGB hex 0xRRGGBB → Google API Color (sRGB 0–1).</summary>
+        private static Color ColorFromHex(uint rgb)
+        {
+            var r = (rgb >> 16) & 0xff;
+            var g = (rgb >> 8) & 0xff;
+            var b = rgb & 0xff;
+            return new Color
+            {
+                Red = r / 255f,
+                Green = g / 255f,
+                Blue = b / 255f
+            };
         }
 
         private async Task<int> TryReadDevredenAkbilFromPreviousDayAsync(SheetsService service, string sheetName, CancellationToken ct)

@@ -21,6 +21,12 @@ namespace DukkanDefterOCR.Models
         [Display(Name = "Akbil")]
         public int? Akbil { get; set; }
 
+        [Display(Name = "Kasadan para çıkmadan yapılan akbil")]
+        public bool KasadanParaCikmadan { get; set; }
+
+        [Display(Name = "Kasadan para çıkmadan tutar")]
+        public int? KasadanParaCikmadanTutar { get; set; }
+
         public List<ManualSheetRow> Rows { get; set; } = new();
     }
 }
