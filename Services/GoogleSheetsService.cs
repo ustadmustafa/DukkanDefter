@@ -16,7 +16,7 @@ namespace DukkanDefterOCR.Services
             _options = options.Value;
         }
 
-        public async Task SaveToSheetAsync(string sheetName, IList<OCRItem> items, CancellationToken ct = default)
+        public async Task SaveToSheetAsync(string sheetName, IList<OCRItem> items, int devredenAkbil, CancellationToken ct = default)
         {
             if (string.IsNullOrWhiteSpace(_options.CredentialsPath))
                 throw new InvalidOperationException("GoogleSheets:CredentialsPath boş.");
@@ -70,6 +70,8 @@ namespace DukkanDefterOCR.Services
             {
                 values.Add(new List<object> { item.Kalem, item.Toplam });
             }
+
+            values.Add(new List<object> { "Devreden akbil", devredenAkbil });
 
             var body = new ValueRange { Values = values };
             var escaped = safeTitle.Replace("'", "''", StringComparison.Ordinal);

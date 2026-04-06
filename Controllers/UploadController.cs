@@ -1,20 +1,27 @@
 ﻿using DukkanDefterOCR.Models;
 using DukkanDefterOCR.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace DukkanDefterOCR.Controllers
 {
     public class UploadController : Controller
     {
         private readonly GoogleSheetsService _googleSheetsService;
+        private readonly GoogleSheetsOptions _sheetsOptions;
 
-        public UploadController(GoogleSheetsService googleSheetsService)
+        public UploadController(GoogleSheetsService googleSheetsService, IOptions<GoogleSheetsOptions> sheetsOptions)
         {
             _googleSheetsService = googleSheetsService;
+            _sheetsOptions = sheetsOptions.Value;
         }
 
         public IActionResult Index()
         {
+            var id = _sheetsOptions.SpreadsheetId?.Trim();
+            if (!string.IsNullOrEmpty(id))
+                ViewData["GoogleSpreadsheetOpenUrl"] = $"https://docs.google.com/spreadsheets/d/{id}/edit";
+
             var vm = new ManualEntryViewModel { SheetDate = DateTime.Today.ToString("dd.MM.yy") };
             for (var i = 0; i < 5; i++)
                 vm.Rows.Add(new ManualSheetRow());
@@ -25,6 +32,12 @@ namespace DukkanDefterOCR.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Save(ManualEntryViewModel model, CancellationToken ct)
         {
+            if (!model.DevredenAkbil.HasValue)
+            {
+                TempData["Error"] = "Devreden Akbil girin.";
+                return RedirectToAction(nameof(Index));
+            }
+
             if (model.Rows == null || model.Rows.Count == 0)
             {
                 TempData["Error"] = "En az bir satır gerekli.";
@@ -63,7 +76,7 @@ namespace DukkanDefterOCR.Controllers
             try
             {
                 var sheetDate = string.IsNullOrWhiteSpace(model.SheetDate) ? "Tarihsiz" : model.SheetDate.Trim();
-                await _googleSheetsService.SaveToSheetAsync(sheetDate, items, ct);
+                await _googleSheetsService.SaveToSheetAsync(sheetDate, items, model.DevredenAkbil.Value, ct);
                 TempData["Success"] = $"'{sheetDate}' sekmesine kaydedildi.";
             }
             catch (Exception ex)
