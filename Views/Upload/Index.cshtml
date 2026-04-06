@@ -8,7 +8,7 @@
     <div class="card-body p-4 p-md-5">
         <h1 class="h3 card-title fw-bold mb-1">Defter Girişi</h1>
         <p class="text-muted small mb-4 mb-md-4">
-            Ürün ve tutarları girin; satır ekleyebilirsiniz. Kaydettiğinizde Google Sheet’e yazılır ve <strong>Toplam</strong> satırı otomatik eklenir.
+            Ürün ve tutarları girin; satır ekleyebilirsiniz. Kaydettiğinizde Google Sheet’e yazılır, <strong>Toplam</strong> ile birlikte <strong>Devreden akbil</strong> ve önceki güne göre hesaplanan <strong>Satılan Akbil</strong> eklenir.
         </p>
 
         @if (TempData["Success"] != null)
@@ -31,6 +31,11 @@
             <div class="mb-4">
                 <label class="form-label fw-semibold small text-uppercase text-muted" style="letter-spacing: .05em;" asp-for="DevredenAkbil">Devreden Akbil</label>
                 <input class="form-control form-control-lg text-end" asp-for="DevredenAkbil" type="number" inputmode="numeric" step="1" placeholder="0" required />
+            </div>
+
+            <div class="mb-4">
+                <label class="form-label fw-semibold small text-uppercase text-muted" style="letter-spacing: .05em;" asp-for="Akbil">Akbil</label>
+                <input class="form-control form-control-lg text-end" asp-for="Akbil" type="number" inputmode="numeric" step="1" placeholder="0" required />
             </div>
 
             <div class="table-responsive ledger-table-wrap mb-3">

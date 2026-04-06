@@ -17,6 +17,10 @@ namespace DukkanDefterOCR.Models
         [Display(Name = "Devreden Akbil")]
         public int? DevredenAkbil { get; set; }
 
+        [Required(ErrorMessage = "Akbil girin.")]
+        [Display(Name = "Akbil")]
+        public int? Akbil { get; set; }
+
         public List<ManualSheetRow> Rows { get; set; } = new();
     }
 }
