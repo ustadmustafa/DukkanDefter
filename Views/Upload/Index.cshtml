@@ -8,7 +8,7 @@
     <div class="card-body p-4 p-md-5">
         <h1 class="h3 card-title fw-bold mb-1">Defter Girişi</h1>
         <p class="text-muted small mb-4 mb-md-4">
-            Ürün ve tutarları girin; satır ekleyebilirsiniz. Kaydettiğinizde Google Sheet’e yazılır, <strong>Toplam</strong> ile birlikte <strong>Devreden akbil</strong> ve önceki güne göre hesaplanan <strong>Satılan Akbil</strong> eklenir.
+            Kayıt <strong>Google Sheet</strong> sekmesine yazılır: kasaya girilen para, harcamalar, kasa, yüklenen akbil, toplam harcamalar, satılan akbil, gün sonu ve ciro (önceki günün sekmesindeki <strong>Kasa</strong> ve <strong>Devredecek Akbil</strong> değerleri ciro ve devir alınan için kullanılır).
         </p>
 
         @if (TempData["Success"] != null)
@@ -29,31 +29,15 @@
             </div>
 
             <div class="mb-4">
-                <label class="form-label fw-semibold small text-uppercase text-muted" style="letter-spacing: .05em;" asp-for="DevredenAkbil">Devreden Akbil</label>
-                <input class="form-control form-control-lg text-end" asp-for="DevredenAkbil" type="number" inputmode="numeric" step="1" placeholder="0" required />
-            </div>
-
-            <div class="mb-4">
-                <label class="form-label fw-semibold small text-uppercase text-muted" style="letter-spacing: .05em;" asp-for="Akbil">Akbil</label>
-                <input class="form-control form-control-lg text-end" asp-for="Akbil" type="number" inputmode="numeric" step="1" placeholder="0" required />
-            </div>
-
-            <div class="mb-4">
-                <div class="form-check mb-2">
-                    <input class="form-check-input" type="checkbox" asp-for="KasadanParaCikmadan" id="chkKasadanPara" />
-                    <label class="form-check-label" for="chkKasadanPara">Kasadan para çıkmadan yapılan akbil</label>
-                </div>
-                <div id="kasadanTutarGroup" class="@(Model.KasadanParaCikmadan ? "" : "d-none")">
-                    <label class="form-label fw-semibold small text-uppercase text-muted" style="letter-spacing: .05em;" asp-for="KasadanParaCikmadanTutar">Tutar</label>
-                    <input class="form-control form-control-lg text-end" asp-for="KasadanParaCikmadanTutar" type="number" inputmode="numeric" step="1" placeholder="0" />
-                </div>
+                <label class="form-label fw-semibold small text-uppercase text-muted" style="letter-spacing: .05em;" asp-for="KasayaGirilenPara">Kasaya Girilen Para</label>
+                <input class="form-control form-control-lg text-end js-ledger-num" asp-for="KasayaGirilenPara" type="number" inputmode="numeric" step="1" placeholder="0" />
             </div>
 
             <div class="table-responsive ledger-table-wrap mb-3">
                 <table class="table table-hover mb-0 ledger-table" id="rowsTable">
                     <thead>
                         <tr>
-                            <th class="ps-3 ps-md-4">Ürün</th>
+                            <th class="ps-3 ps-md-4">Ürün (harcama)</th>
                             <th class="text-end pe-2" style="min-width: 8.5rem;">Tutar</th>
                             <th class="text-center px-2" style="width: 3.5rem;"></th>
                         </tr>
@@ -77,11 +61,40 @@
                 </table>
             </div>
 
+            <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold small text-uppercase text-muted" style="letter-spacing: .05em;" asp-for="Kasa">Kasa</label>
+                    <input class="form-control form-control-lg text-end js-ledger-num" asp-for="Kasa" type="number" inputmode="numeric" step="1" placeholder="0" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold small text-uppercase text-muted" style="letter-spacing: .05em;" asp-for="YuklenenAkbil">Yüklenen Akbil</label>
+                    <input class="form-control form-control-lg text-end js-ledger-num" asp-for="YuklenenAkbil" type="number" inputmode="numeric" step="1" placeholder="0" />
+                </div>
+            </div>
+
+            <div class="border rounded-3 p-3 mb-4 bg-light-subtle">
+                <div class="row g-2 small">
+                    <div class="col-sm-6 d-flex justify-content-between"><span class="text-muted">Önizleme toplamı (harcama)</span><span class="fw-semibold" id="liveTotal">0</span></div>
+                    <div class="col-sm-6 d-flex justify-content-between"><span class="text-muted">Gün Sonu</span><span class="fw-semibold" id="liveGunSonu">0</span></div>
+                    <div class="col-sm-6 d-flex justify-content-between"><span class="text-muted">Satılan Akbil</span><span class="fw-semibold" id="liveSatilan">0</span></div>
+                    <div class="col-sm-6 d-flex justify-content-between"><span class="text-muted">Ciro</span><span class="fw-semibold" id="liveCiro">0</span></div>
+                    <div class="col-12 pt-2 border-top mt-2">
+                        <span class="text-muted">Devir Alınan Akbil</span> (bir önceki günün <em>Devredecek Akbil</em> değeri, kayıtta sunucudan okunur):
+                        <span class="fw-bold text-teal" style="color: #0f766e;">@Model.DevirAlinanAkbilPreview.ToString("N0", System.Globalization.CultureInfo.GetCultureInfo("tr-TR"))</span>
+                    </div>
+                </div>
+            </div>
+
+            <input type="hidden" id="hfDevirAlinan" value="@Model.DevirAlinanAkbilPreview" />
+            <input type="hidden" id="hfDunKasa" value="@Model.DunKasaFromPreviousDay" />
+
+            <div class="mb-4">
+                <label class="form-label fw-semibold small text-uppercase text-muted" style="letter-spacing: .05em;" asp-for="DevredecekAkbil">Devredecek Akbil</label>
+                <input class="form-control form-control-lg text-end js-ledger-num" asp-for="DevredecekAkbil" type="number" inputmode="numeric" step="1" placeholder="0" />
+            </div>
+
             <div class="live-total-bar px-3 py-3 mb-4 d-flex flex-column flex-sm-row align-items-start align-items-sm-center justify-content-between gap-2">
                 <span class="small text-muted fw-medium mb-0">Yalnızca ürün adı dolu satırlar kaydedilir.</span>
-                <div class="fw-bold text-teal fs-5 mb-0" style="color: #0f766e;">
-                    Önizleme toplamı: <span id="liveTotal">0</span>
-                </div>
             </div>
 
             <div class="d-flex flex-column flex-sm-row flex-wrap gap-2 gap-sm-3 align-items-stretch align-items-sm-center">
@@ -104,19 +117,53 @@
             const tbody = document.getElementById('rowsBody');
             const btnAdd = document.getElementById('btnAddRow');
             const liveTotal = document.getElementById('liveTotal');
-            const chkKasadan = document.getElementById('chkKasadanPara');
-            const kasadanGroup = document.getElementById('kasadanTutarGroup');
-            const inpKasadan = kasadanGroup ? kasadanGroup.querySelector('input[type="number"]') : null;
+            const liveGunSonu = document.getElementById('liveGunSonu');
+            const liveSatilan = document.getElementById('liveSatilan');
+            const liveCiro = document.getElementById('liveCiro');
+            const hfDevir = document.getElementById('hfDevirAlinan');
+            const hfDunKasa = document.getElementById('hfDunKasa');
 
-            function syncKasadanPara() {
-                if (!chkKasadan || !kasadanGroup || !inpKasadan) return;
-                const on = chkKasadan.checked;
-                kasadanGroup.classList.toggle('d-none', !on);
-                inpKasadan.required = on;
-                if (!on) inpKasadan.value = '';
+            function parseIntSafe(v) {
+                const n = parseInt(String(v).replace(/\s/g, ''), 10);
+                return isNaN(n) ? 0 : n;
             }
-            if (chkKasadan) chkKasadan.addEventListener('change', syncKasadanPara);
-            syncKasadanPara();
+
+            function expenseSum() {
+                let sum = 0;
+                tbody.querySelectorAll('tr.data-row').forEach(tr => {
+                    const name = tr.querySelector('input[name$=".Urun"]');
+                    const amt = tr.querySelector('input.js-tutar');
+                    if (!name || !amt) return;
+                    if (!name.value || !name.value.trim()) return;
+                    sum += parseIntSafe(amt.value);
+                });
+                return sum;
+            }
+
+            function valByName(name) {
+                const el = document.querySelector('[name="' + name + '"]');
+                return el ? parseIntSafe(el.value) : 0;
+            }
+
+            function updateLive() {
+                const harcama = expenseSum();
+                const kasaya = valByName('KasayaGirilenPara');
+                const kasa = valByName('Kasa');
+                const yuklenen = valByName('YuklenenAkbil');
+                const devredecek = valByName('DevredecekAkbil');
+                const devirAlinan = hfDevir ? parseIntSafe(hfDevir.value) : 0;
+                const dunKasa = hfDunKasa ? parseIntSafe(hfDunKasa.value) : 0;
+
+                const gunSonu = harcama + yuklenen - kasaya + kasa;
+                const satilan = devredecek + yuklenen - devirAlinan;
+                const ciro = gunSonu - dunKasa - satilan;
+
+                const tr = new Intl.NumberFormat('tr-TR');
+                liveTotal.textContent = tr.format(harcama);
+                liveGunSonu.textContent = tr.format(gunSonu);
+                liveSatilan.textContent = tr.format(satilan);
+                liveCiro.textContent = tr.format(ciro);
+            }
 
             function rowCount() {
                 return tbody.querySelectorAll('tr.data-row').length;
@@ -129,20 +176,7 @@
                     if (urun) urun.name = 'Rows[' + i + '].Urun';
                     if (tutar) tutar.name = 'Rows[' + i + '].Tutar';
                 });
-                updateLiveTotal();
-            }
-
-            function updateLiveTotal() {
-                let sum = 0;
-                tbody.querySelectorAll('tr.data-row').forEach(tr => {
-                    const name = tr.querySelector('input[name$=".Urun"]');
-                    const amt = tr.querySelector('input.js-tutar');
-                    if (!name || !amt) return;
-                    if (!name.value || !name.value.trim()) return;
-                    const n = parseInt(amt.value, 10);
-                    if (!isNaN(n)) sum += n;
-                });
-                liveTotal.textContent = sum.toLocaleString('tr-TR');
+                updateLive();
             }
 
             function addRow() {
@@ -155,8 +189,8 @@
                     '<td class="text-center py-3 px-1"><button type="button" class="btn btn-sm btn-outline-danger btn-icon-remove btn-remove-row" title="Satırı sil" aria-label="Satırı sil">✕</button></td>';
                 tbody.appendChild(tr);
                 tr.querySelector('.btn-remove-row').addEventListener('click', onRemove);
-                tr.querySelectorAll('input').forEach(inp => inp.addEventListener('input', updateLiveTotal));
-                updateLiveTotal();
+                tr.querySelectorAll('input').forEach(inp => inp.addEventListener('input', updateLive));
+                updateLive();
             }
 
             function onRemove(e) {
@@ -168,8 +202,9 @@
 
             btnAdd.addEventListener('click', addRow);
             tbody.querySelectorAll('.btn-remove-row').forEach(b => b.addEventListener('click', onRemove));
-            tbody.querySelectorAll('input').forEach(inp => inp.addEventListener('input', updateLiveTotal));
-            updateLiveTotal();
+            tbody.querySelectorAll('input').forEach(inp => inp.addEventListener('input', updateLive));
+            document.querySelectorAll('.js-ledger-num').forEach(inp => inp.addEventListener('input', updateLive));
+            updateLive();
         })();
     </script>
 }

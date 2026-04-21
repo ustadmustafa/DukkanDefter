@@ -16,7 +16,7 @@ namespace DukkanDefterOCR.Controllers
             _sheetsOptions = sheetsOptions.Value;
         }
 
-        public IActionResult Index()
+        public async Task<IActionResult> Index(CancellationToken ct)
         {
             var id = _sheetsOptions.SpreadsheetId?.Trim();
             if (!string.IsNullOrEmpty(id))
@@ -25,6 +25,18 @@ namespace DukkanDefterOCR.Controllers
             var vm = new ManualEntryViewModel { SheetDate = DateTime.Today.ToString("dd.MM.yy") };
             for (var i = 0; i < 5; i++)
                 vm.Rows.Add(new ManualSheetRow());
+
+            try
+            {
+                var (devir, dunKasa) = await _googleSheetsService.TryReadPreviousDayClosingAsync(vm.SheetDate, ct);
+                vm.DevirAlinanAkbilPreview = devir;
+                vm.DunKasaFromPreviousDay = dunKasa;
+            }
+            catch
+            {
+                // Kimlik dosyası yoksa veya ağ hatası: form yine açılır.
+            }
+
             return View(vm);
         }
 
@@ -32,26 +44,29 @@ namespace DukkanDefterOCR.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Save(ManualEntryViewModel model, CancellationToken ct)
         {
-            if (!model.DevredenAkbil.HasValue)
+            if (!model.KasayaGirilenPara.HasValue)
             {
-                TempData["Error"] = "Devreden Akbil girin.";
+                TempData["Error"] = "Kasaya girilen para girin.";
                 return RedirectToAction(nameof(Index));
             }
 
-            if (!model.Akbil.HasValue)
+            if (!model.Kasa.HasValue)
             {
-                TempData["Error"] = "Akbil girin.";
+                TempData["Error"] = "Kasa tutarını girin.";
                 return RedirectToAction(nameof(Index));
             }
 
-            if (model.KasadanParaCikmadan && !model.KasadanParaCikmadanTutar.HasValue)
+            if (!model.YuklenenAkbil.HasValue)
             {
-                TempData["Error"] = "Kasadan para çıkmadan yapılan akbil işaretliyken tutar girin.";
+                TempData["Error"] = "Yüklenen akbil girin.";
                 return RedirectToAction(nameof(Index));
             }
 
-            var kasadanEk = model.KasadanParaCikmadan ? model.KasadanParaCikmadanTutar!.Value : 0;
-            var akbilToplam = model.Akbil.Value + kasadanEk;
+            if (!model.DevredecekAkbil.HasValue)
+            {
+                TempData["Error"] = "Devredecek akbil girin.";
+                return RedirectToAction(nameof(Index));
+            }
 
             if (model.Rows == null || model.Rows.Count == 0)
             {
@@ -78,20 +93,21 @@ namespace DukkanDefterOCR.Controllers
                 IsGrandTotalRow = false
             }).ToList();
 
-            var sum = items.Sum(i => i.Toplam);
-            items.Add(new OCRItem
-            {
-                Kalem = "Toplam",
-                HamTutar = "",
-                Toplam = sum,
-                Not = "",
-                IsGrandTotalRow = true
-            });
-
             try
             {
                 var sheetDate = string.IsNullOrWhiteSpace(model.SheetDate) ? "Tarihsiz" : model.SheetDate.Trim();
-                await _googleSheetsService.SaveToSheetAsync(sheetDate, items, model.DevredenAkbil.Value, akbilToplam, model.Akbil.Value, ct);
+                var (devirAlinan, _) = await _googleSheetsService.TryReadPreviousDayClosingAsync(sheetDate, ct);
+
+                await _googleSheetsService.SaveToSheetAsync(
+                    sheetDate,
+                    items,
+                    model.KasayaGirilenPara.Value,
+                    model.Kasa.Value,
+                    model.YuklenenAkbil.Value,
+                    model.DevredecekAkbil.Value,
+                    devirAlinan,
+                    ct);
+
                 TempData["Success"] = $"'{sheetDate}' sekmesine kaydedildi.";
             }
             catch (Exception ex)

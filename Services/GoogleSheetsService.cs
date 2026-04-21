@@ -10,9 +10,23 @@ namespace DukkanDefterOCR.Services
 {
     public class GoogleSheetsService
     {
-        private const string DevredenLabel = "Devreden akbil";
-        private const string SatilanLabel = "Satılan Akbil";
-        private const string AkbilRowLabel = "Akbil";
+        private const string KasayaGirilenLabel = "Kasaya Girilen Para";
+        private const string KasaLabel = "Kasa";
+        private const string ToplamHarcamalarLabel = "Toplam Harcamalar";
+        private const string DevredenAkbilLabel = "Devreden Akbil";
+        private const string SatilanAkbilLabel = "Satılan Akbil";
+        private const string YuklenenAkbilLabel = "Yüklenen Akbil";
+        private const string GunSonuLabel = "Gün Sonu";
+        private const string DevredecekAkbilLabel = "Devredecek Akbil";
+        private const string DevirAlinanAkbilLabel = "Devir Alınan Akbil";
+        private const string CiroLabel = "Ciro";
+
+        /// <summary>Önceki gün sekmesine formülle referans için sabit satırlar (E:F).</summary>
+        private const int MirrorRowKasaya = 1;
+        private const int MirrorRowKasa = 2;
+        private const int MirrorRowDevredecek = 3;
+        private const int MirrorRowYuklenen = 4;
+        private const int MirrorRowDevirAlinan = 5;
 
         private readonly GoogleSheetsOptions _options;
 
@@ -21,9 +35,124 @@ namespace DukkanDefterOCR.Services
             _options = options.Value;
         }
 
-        /// <param name="akbilHesapSatilan">Satılan Akbil formülünde kullanılacak toplam (Akbil + kasadan ek).</param>
-        /// <param name="akbilTabloDeger">Sol tabloda gösterilecek, forma girilen Akbil tutarı.</param>
-        public async Task SaveToSheetAsync(string sheetName, IList<OCRItem> items, int devredenAkbil, int akbilHesapSatilan, int akbilTabloDeger, CancellationToken ct = default)
+        /// <summary>Bugünkü sekmeye göre bir önceki günün <c>Devredecek Akbil</c> (bugünün devir alınanı) ve <c>Kasa</c> değerlerini okur.</summary>
+        public async Task<(int devirAlinanAkbil, int dunKasa)> TryReadPreviousDayClosingAsync(string sheetName, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(_options.CredentialsPath) || string.IsNullOrWhiteSpace(_options.SpreadsheetId))
+                return (0, 0);
+            if (!File.Exists(_options.CredentialsPath))
+                return (0, 0);
+
+            await using var stream = new FileStream(_options.CredentialsPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+#pragma warning disable CS0618
+            var credential = GoogleCredential.FromStream(stream).CreateScoped(SheetsService.Scope.Spreadsheets);
+#pragma warning restore CS0618
+
+            using var service = new SheetsService(new BaseClientService.Initializer
+            {
+                HttpClientInitializer = credential,
+                ApplicationName = "DukkanDefterOCR"
+            });
+
+            if (!TryParseLedgerSheetDate(sheetName.Trim(), out var currentDate))
+                return (0, 0);
+
+            var prevTitle = SanitizeSheetTitle(currentDate.AddDays(-1).ToString("dd.MM.yy", CultureInfo.InvariantCulture));
+            var escapedPrev = prevTitle.Replace("'", "''", StringComparison.Ordinal);
+
+            try
+            {
+                var mirrorRange = $"'{escapedPrev}'!E{MirrorRowKasaya}:F{MirrorRowDevirAlinan}";
+                var req = service.Spreadsheets.Values.Get(_options.SpreadsheetId, mirrorRange);
+                var res = await req.ExecuteAsync(ct);
+                var devir = 0;
+                var dunKasa = 0;
+                if (res.Values != null)
+                {
+                    foreach (var row in res.Values)
+                    {
+                        if (row.Count < 2)
+                            continue;
+                        var label = row[0]?.ToString()?.Trim();
+                        if (string.Equals(label, DevredecekAkbilLabel, StringComparison.OrdinalIgnoreCase) && TryParseIntCell(row[1], out var dv))
+                            devir = dv;
+                        if (string.Equals(label, KasaLabel, StringComparison.OrdinalIgnoreCase) && TryParseIntCell(row[1], out var kv))
+                            dunKasa = kv;
+                    }
+                }
+
+                if (devir == 0 || dunKasa == 0)
+                {
+                    var (dFallback, kFallback) = await TryReadLegacyPrevDayFromAbAsync(service, escapedPrev, ct);
+                    if (devir == 0)
+                        devir = dFallback;
+                    if (dunKasa == 0)
+                        dunKasa = kFallback;
+                }
+
+                return (devir, dunKasa);
+            }
+            catch
+            {
+                return (0, 0);
+            }
+        }
+
+        private async Task<(int devir, int dunKasa)> TryReadLegacyPrevDayFromAbAsync(SheetsService service, string escapedPrevTitle, CancellationToken ct)
+        {
+            var devir = 0;
+            var dunKasa = 0;
+            try
+            {
+                var range = $"'{escapedPrevTitle}'!A1:B500";
+                var req = service.Spreadsheets.Values.Get(_options.SpreadsheetId, range);
+                var res = await req.ExecuteAsync(ct);
+                if (res.Values == null)
+                    return (0, 0);
+
+                foreach (var row in res.Values)
+                {
+                    if (row.Count < 2)
+                        continue;
+                    var label = row[0]?.ToString()?.Trim();
+                    if (string.Equals(label, DevredecekAkbilLabel, StringComparison.OrdinalIgnoreCase) && TryParseIntCell(row[1], out var dv))
+                        devir = dv;
+                    if (string.Equals(label, KasaLabel, StringComparison.OrdinalIgnoreCase) && TryParseIntCell(row[1], out var kv))
+                        dunKasa = kv;
+                }
+
+                if (devir == 0)
+                {
+                    foreach (var row in res.Values)
+                    {
+                        if (row.Count < 2)
+                            continue;
+                        var label = row[0]?.ToString()?.Trim();
+                        if (string.Equals(label, "Devreden akbil", StringComparison.OrdinalIgnoreCase) && TryParseIntCell(row[1], out var d2))
+                        {
+                            devir = d2;
+                            break;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // yoksay
+            }
+
+            return (devir, dunKasa);
+        }
+
+        public async Task SaveToSheetAsync(
+            string sheetName,
+            IList<OCRItem> expenseItems,
+            int kasayaGirilenPara,
+            int kasa,
+            int yuklenenAkbil,
+            int devredecekAkbil,
+            int devirAlinanAkbil,
+            CancellationToken ct = default)
         {
             if (string.IsNullOrWhiteSpace(_options.CredentialsPath))
                 throw new InvalidOperationException("GoogleSheets:CredentialsPath boş.");
@@ -33,10 +162,8 @@ namespace DukkanDefterOCR.Services
                 throw new FileNotFoundException("Credentials dosyası bulunamadı.", _options.CredentialsPath);
 
             await using var stream = new FileStream(_options.CredentialsPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-#pragma warning disable CS0618 // GoogleCredential.FromStream — servis hesabı JSON; CredentialFactory geçişi sonraki adım
-            var credential = GoogleCredential
-                .FromStream(stream)
-                .CreateScoped(SheetsService.Scope.Spreadsheets);
+#pragma warning disable CS0618
+            var credential = GoogleCredential.FromStream(stream).CreateScoped(SheetsService.Scope.Spreadsheets);
 #pragma warning restore CS0618
 
             using var service = new SheetsService(new BaseClientService.Initializer
@@ -68,26 +195,54 @@ namespace DukkanDefterOCR.Services
                 await service.Spreadsheets.BatchUpdate(batch, _options.SpreadsheetId).ExecuteAsync(ct);
             }
 
+            var e = expenseItems.Count;
+            var rExpEnd = 2 + e;
+            var rKasa = 3 + e;
+            var rYuklenen = 5 + e;
+            var rDevredecek = 6 + e;
+            var rDevirAlinan = 7 + e;
+            var rToplamHarc = 9 + e;
+            var rDevreden = 11 + e;
+            var rSatilan = 13 + e;
+            var rGunSonu = 14 + e;
+            var rCiro = 15 + e;
+            var mainRowCount = 15 + e;
+
             var mainValues = new List<IList<object>>
             {
+                new List<object> { KasayaGirilenLabel, kasayaGirilenPara },
                 new List<object> { "Ürün", "Tutar" }
             };
 
-            foreach (var item in items)
+            foreach (var item in expenseItems)
                 mainValues.Add(new List<object> { item.Kalem, item.Toplam });
 
-            mainValues.Add(new List<object> { AkbilRowLabel, akbilTabloDeger });
+            mainValues.Add(new List<object> { KasaLabel, kasa });
+            mainValues.Add(new List<object> { "", "" });
+            mainValues.Add(new List<object> { YuklenenAkbilLabel, yuklenenAkbil });
+            mainValues.Add(new List<object> { DevredecekAkbilLabel, devredecekAkbil });
+            mainValues.Add(new List<object> { DevirAlinanAkbilLabel, devirAlinanAkbil });
+            mainValues.Add(new List<object> { "", "" });
+            mainValues.Add(new List<object> { ToplamHarcamalarLabel, $"=SUM(B3:B{rExpEnd})+B{rKasa}-B1" });
+            mainValues.Add(new List<object> { "", "" });
+            mainValues.Add(new List<object> { DevredenAkbilLabel, devirAlinanAkbil });
+            mainValues.Add(new List<object> { "", "" });
+            mainValues.Add(new List<object> { SatilanAkbilLabel, $"=B{rDevredecek}+B{rYuklenen}-B{rDevirAlinan}" });
+            mainValues.Add(new List<object> { GunSonuLabel, $"=SUM(B3:B{rExpEnd})+B{rYuklenen}-B1+B{rKasa}" });
 
-            var mainRowCount = mainValues.Count;
-            var footerStartRow = mainRowCount + 3;
+            var prevRef = TryGetPreviousSheetFormulaRef(sheetName);
+            var ciroFormula = prevRef != null
+                ? $"=B{rGunSonu}-'{prevRef}'!$F${MirrorRowKasa}-B{rSatilan}"
+                : $"=B{rGunSonu}-0-B{rSatilan}";
+            mainValues.Add(new List<object> { CiroLabel, ciroFormula });
 
-            var previousDevreden = await TryReadDevredenAkbilFromPreviousDayAsync(service, sheetName, ct);
-            var satilanAkbil = akbilHesapSatilan + (previousDevreden - devredenAkbil);
-
-            var footerValues = new List<IList<object>>
+            var mirrorValues = new List<IList<object>>
             {
-                new List<object> { DevredenLabel, devredenAkbil },
-                new List<object> { SatilanLabel, satilanAkbil }
+                new List<object> { KasayaGirilenLabel, kasayaGirilenPara },
+                new List<object> { KasaLabel, kasa },
+                new List<object> { DevredecekAkbilLabel, devredecekAkbil },
+                new List<object> { YuklenenAkbilLabel, yuklenenAkbil },
+                new List<object> { DevirAlinanAkbilLabel, devirAlinanAkbil }
             };
 
             var escaped = safeTitle.Replace("'", "''", StringComparison.Ordinal);
@@ -98,10 +253,17 @@ namespace DukkanDefterOCR.Services
             mainReq.ValueInputOption = vo;
             await mainReq.ExecuteAsync(ct);
 
-            var footerBody = new ValueRange { Values = footerValues };
-            var footerReq = service.Spreadsheets.Values.Update(footerBody, _options.SpreadsheetId, $"'{escaped}'!C{footerStartRow}:D{footerStartRow + 1}");
-            footerReq.ValueInputOption = vo;
-            await footerReq.ExecuteAsync(ct);
+            var mirrorBody = new ValueRange { Values = mirrorValues };
+            var mirrorReq = service.Spreadsheets.Values.Update(mirrorBody, _options.SpreadsheetId, $"'{escaped}'!E{MirrorRowKasaya}:F{MirrorRowDevirAlinan}");
+            mirrorReq.ValueInputOption = vo;
+            await mirrorReq.ExecuteAsync(ct);
+
+            var clearLegacy = new List<IList<object>>();
+            for (var i = 0; i < 45; i++)
+                clearLegacy.Add(new List<object> { "", "" });
+            var clearReq = service.Spreadsheets.Values.Update(new ValueRange { Values = clearLegacy }, _options.SpreadsheetId, $"'{escaped}'!C1:D45");
+            clearReq.ValueInputOption = vo;
+            await clearReq.ExecuteAsync(ct);
 
             spreadsheet = await service.Spreadsheets.Get(_options.SpreadsheetId).ExecuteAsync(ct);
             var sheet = spreadsheet.Sheets?.FirstOrDefault(s => s.Properties.Title == safeTitle);
@@ -109,25 +271,43 @@ namespace DukkanDefterOCR.Services
             if (sheetId == null)
                 return;
 
-            var formatRequests = BuildLedgerFormatRequests(sheetId.Value, mainRowCount, footerStartRow);
+            var formatRequests = BuildLedgerFormatRequests(sheetId.Value, e, mainRowCount);
             if (formatRequests.Count > 0)
             {
                 await service.Spreadsheets.BatchUpdate(new BatchUpdateSpreadsheetRequest { Requests = formatRequests }, _options.SpreadsheetId).ExecuteAsync(ct);
             }
         }
 
-        private static List<Request> BuildLedgerFormatRequests(int sheetId, int mainRowCount, int footerStartRow1Based)
+        private static string? TryGetPreviousSheetFormulaRef(string sheetName)
+        {
+            if (!TryParseLedgerSheetDate(sheetName.Trim(), out var currentDate))
+                return null;
+
+            var prevTitle = SanitizeSheetTitle(currentDate.AddDays(-1).ToString("dd.MM.yy", CultureInfo.InvariantCulture));
+            return prevTitle.Replace("'", "''", StringComparison.Ordinal);
+        }
+
+        private static List<Request> BuildLedgerFormatRequests(int sheetId, int expenseCount, int mainRowCount1Based)
         {
             var requests = new List<Request>();
-            var footerRow0 = footerStartRow1Based - 1;
+            var e = expenseCount;
+            var kasaRow0 = 2 + e;
+            var yuklenenRow0 = 4 + e;
+            var devredecekRow0 = 5 + e;
+            var devirRow0 = 6 + e;
+            var toplamRow0 = 8 + e;
+            var devredenRow0 = 10 + e;
+            var satilanRow0 = 12 + e;
+            var gunsonuRow0 = 13 + e;
+            var ciroRow0 = 14 + e;
+            var mainEnd0 = mainRowCount1Based;
 
-            // Sütun genişlikleri
             requests.Add(new Request
             {
                 UpdateDimensionProperties = new UpdateDimensionPropertiesRequest
                 {
                     Range = new DimensionRange { SheetId = sheetId, Dimension = "COLUMNS", StartIndex = 0, EndIndex = 1 },
-                    Properties = new DimensionProperties { PixelSize = 280 },
+                    Properties = new DimensionProperties { PixelSize = 260 },
                     Fields = "pixelSize"
                 }
             });
@@ -144,8 +324,8 @@ namespace DukkanDefterOCR.Services
             {
                 UpdateDimensionProperties = new UpdateDimensionPropertiesRequest
                 {
-                    Range = new DimensionRange { SheetId = sheetId, Dimension = "COLUMNS", StartIndex = 2, EndIndex = 3 },
-                    Properties = new DimensionProperties { PixelSize = 220 },
+                    Range = new DimensionRange { SheetId = sheetId, Dimension = "COLUMNS", StartIndex = 4, EndIndex = 5 },
+                    Properties = new DimensionProperties { PixelSize = 120 },
                     Fields = "pixelSize"
                 }
             });
@@ -153,7 +333,7 @@ namespace DukkanDefterOCR.Services
             {
                 UpdateDimensionProperties = new UpdateDimensionPropertiesRequest
                 {
-                    Range = new DimensionRange { SheetId = sheetId, Dimension = "COLUMNS", StartIndex = 3, EndIndex = 4 },
+                    Range = new DimensionRange { SheetId = sheetId, Dimension = "COLUMNS", StartIndex = 5, EndIndex = 6 },
                     Properties = new DimensionProperties { PixelSize = 120 },
                     Fields = "pixelSize"
                 }
@@ -166,13 +346,13 @@ namespace DukkanDefterOCR.Services
                     Properties = new SheetProperties
                     {
                         SheetId = sheetId,
-                        GridProperties = new GridProperties { FrozenRowCount = 1 }
+                        GridProperties = new GridProperties { FrozenRowCount = 2 }
                     },
                     Fields = "gridProperties.frozenRowCount"
                 }
             });
 
-            // Başlık satırı
+            // Kasaya satırı
             requests.Add(new Request
             {
                 RepeatCell = new RepeatCellRequest
@@ -189,15 +369,37 @@ namespace DukkanDefterOCR.Services
                     {
                         UserEnteredFormat = new CellFormat
                         {
+                            BackgroundColor = ColorFromHex(0xccfbf1),
+                            VerticalAlignment = "MIDDLE",
+                            TextFormat = new TextFormat { Bold = true, FontSize = 11 },
+                            WrapStrategy = "WRAP"
+                        }
+                    },
+                    Fields = "userEnteredFormat(backgroundColor,verticalAlignment,textFormat,wrapStrategy)"
+                }
+            });
+
+            // Ürün başlığı
+            requests.Add(new Request
+            {
+                RepeatCell = new RepeatCellRequest
+                {
+                    Range = new GridRange
+                    {
+                        SheetId = sheetId,
+                        StartRowIndex = 1,
+                        EndRowIndex = 2,
+                        StartColumnIndex = 0,
+                        EndColumnIndex = 2
+                    },
+                    Cell = new CellData
+                    {
+                        UserEnteredFormat = new CellFormat
+                        {
                             BackgroundColor = ColorFromHex(0x0f766e),
                             HorizontalAlignment = "CENTER",
                             VerticalAlignment = "MIDDLE",
-                            TextFormat = new TextFormat
-                            {
-                                Bold = true,
-                                FontSize = 11,
-                                ForegroundColor = ColorFromHex(0xffffff)
-                            },
+                            TextFormat = new TextFormat { Bold = true, FontSize = 11, ForegroundColor = ColorFromHex(0xffffff) },
                             WrapStrategy = "WRAP"
                         }
                     },
@@ -205,8 +407,7 @@ namespace DukkanDefterOCR.Services
                 }
             });
 
-            // Ürün satırları (Toplam ve Akbil hariç)
-            if (mainRowCount > 3)
+            if (e > 0)
             {
                 requests.Add(new Request
                 {
@@ -215,8 +416,8 @@ namespace DukkanDefterOCR.Services
                         Range = new GridRange
                         {
                             SheetId = sheetId,
-                            StartRowIndex = 1,
-                            EndRowIndex = mainRowCount - 2,
+                            StartRowIndex = 2,
+                            EndRowIndex = 2 + e,
                             StartColumnIndex = 0,
                             EndColumnIndex = 2
                         },
@@ -234,7 +435,7 @@ namespace DukkanDefterOCR.Services
                 });
             }
 
-            var toplamRowIndex = mainRowCount - 2;
+            // Kasa
             requests.Add(new Request
             {
                 RepeatCell = new RepeatCellRequest
@@ -242,35 +443,8 @@ namespace DukkanDefterOCR.Services
                     Range = new GridRange
                     {
                         SheetId = sheetId,
-                        StartRowIndex = toplamRowIndex,
-                        EndRowIndex = toplamRowIndex + 1,
-                        StartColumnIndex = 0,
-                        EndColumnIndex = 2
-                    },
-                    Cell = new CellData
-                    {
-                        UserEnteredFormat = new CellFormat
-                        {
-                            BackgroundColor = ColorFromHex(0xfef3c7),
-                            VerticalAlignment = "MIDDLE",
-                            TextFormat = new TextFormat { Bold = true, FontSize = 11 },
-                            WrapStrategy = "WRAP"
-                        }
-                    },
-                    Fields = "userEnteredFormat(backgroundColor,verticalAlignment,textFormat,wrapStrategy)"
-                }
-            });
-
-            var akbilRowIndex = mainRowCount - 1;
-            requests.Add(new Request
-            {
-                RepeatCell = new RepeatCellRequest
-                {
-                    Range = new GridRange
-                    {
-                        SheetId = sheetId,
-                        StartRowIndex = akbilRowIndex,
-                        EndRowIndex = akbilRowIndex + 1,
+                        StartRowIndex = kasaRow0,
+                        EndRowIndex = kasaRow0 + 1,
                         StartColumnIndex = 0,
                         EndColumnIndex = 2
                     },
@@ -288,8 +462,7 @@ namespace DukkanDefterOCR.Services
                 }
             });
 
-            // Tutar sütunu sayı formatı (sol tablo)
-            if (mainRowCount > 1)
+            void StyleSummaryRow(int row0, uint bg)
             {
                 requests.Add(new Request
                 {
@@ -298,8 +471,46 @@ namespace DukkanDefterOCR.Services
                         Range = new GridRange
                         {
                             SheetId = sheetId,
-                            StartRowIndex = 1,
-                            EndRowIndex = mainRowCount,
+                            StartRowIndex = row0,
+                            EndRowIndex = row0 + 1,
+                            StartColumnIndex = 0,
+                            EndColumnIndex = 2
+                        },
+                        Cell = new CellData
+                        {
+                            UserEnteredFormat = new CellFormat
+                            {
+                                BackgroundColor = ColorFromHex(bg),
+                                VerticalAlignment = "MIDDLE",
+                                TextFormat = new TextFormat { Bold = true, FontSize = 11 },
+                                WrapStrategy = "WRAP"
+                            }
+                        },
+                        Fields = "userEnteredFormat(backgroundColor,verticalAlignment,textFormat,wrapStrategy)"
+                    }
+                });
+            }
+
+            StyleSummaryRow(yuklenenRow0, 0xf1f5f9);
+            StyleSummaryRow(devredecekRow0, 0xf1f5f9);
+            StyleSummaryRow(devirRow0, 0xf1f5f9);
+            StyleSummaryRow(toplamRow0, 0xfef3c7);
+            StyleSummaryRow(devredenRow0, 0xfee2e2);
+            StyleSummaryRow(satilanRow0, 0xffedd5);
+            StyleSummaryRow(gunsonuRow0, 0xd9f99d);
+            StyleSummaryRow(ciroRow0, 0xe9d5ff);
+
+            if (mainEnd0 > 0)
+            {
+                requests.Add(new Request
+                {
+                    RepeatCell = new RepeatCellRequest
+                    {
+                        Range = new GridRange
+                        {
+                            SheetId = sheetId,
+                            StartRowIndex = 0,
+                            EndRowIndex = mainEnd0,
                             StartColumnIndex = 1,
                             EndColumnIndex = 2
                         },
@@ -316,7 +527,6 @@ namespace DukkanDefterOCR.Services
                 });
             }
 
-            // Sol tablo dış çerçeve + iç yatay çizgiler
             var borderColor = ColorFromHex(0xcbd5e1);
             requests.Add(new Request
             {
@@ -326,7 +536,7 @@ namespace DukkanDefterOCR.Services
                     {
                         SheetId = sheetId,
                         StartRowIndex = 0,
-                        EndRowIndex = mainRowCount,
+                        EndRowIndex = mainEnd0,
                         StartColumnIndex = 0,
                         EndColumnIndex = 2
                     },
@@ -339,7 +549,7 @@ namespace DukkanDefterOCR.Services
                 }
             });
 
-            // Akbil bloğu (C:D)
+            // E:F özet aynası
             requests.Add(new Request
             {
                 RepeatCell = new RepeatCellRequest
@@ -347,16 +557,16 @@ namespace DukkanDefterOCR.Services
                     Range = new GridRange
                     {
                         SheetId = sheetId,
-                        StartRowIndex = footerRow0,
-                        EndRowIndex = footerRow0 + 2,
-                        StartColumnIndex = 2,
-                        EndColumnIndex = 4
+                        StartRowIndex = 0,
+                        EndRowIndex = MirrorRowDevirAlinan,
+                        StartColumnIndex = 4,
+                        EndColumnIndex = 6
                     },
                     Cell = new CellData
                     {
                         UserEnteredFormat = new CellFormat
                         {
-                            BackgroundColor = ColorFromHex(0xf1f5f9),
+                            BackgroundColor = ColorFromHex(0xf8fafc),
                             VerticalAlignment = "MIDDLE",
                             WrapStrategy = "WRAP"
                         }
@@ -372,10 +582,10 @@ namespace DukkanDefterOCR.Services
                     Range = new GridRange
                     {
                         SheetId = sheetId,
-                        StartRowIndex = footerRow0,
-                        EndRowIndex = footerRow0 + 2,
-                        StartColumnIndex = 2,
-                        EndColumnIndex = 3
+                        StartRowIndex = 0,
+                        EndRowIndex = MirrorRowDevirAlinan,
+                        StartColumnIndex = 4,
+                        EndColumnIndex = 5
                     },
                     Cell = new CellData
                     {
@@ -396,10 +606,10 @@ namespace DukkanDefterOCR.Services
                     Range = new GridRange
                     {
                         SheetId = sheetId,
-                        StartRowIndex = footerRow0,
-                        EndRowIndex = footerRow0 + 2,
-                        StartColumnIndex = 3,
-                        EndColumnIndex = 4
+                        StartRowIndex = 0,
+                        EndRowIndex = MirrorRowDevirAlinan,
+                        StartColumnIndex = 5,
+                        EndColumnIndex = 6
                     },
                     Cell = new CellData
                     {
@@ -421,10 +631,10 @@ namespace DukkanDefterOCR.Services
                     Range = new GridRange
                     {
                         SheetId = sheetId,
-                        StartRowIndex = footerRow0,
-                        EndRowIndex = footerRow0 + 2,
-                        StartColumnIndex = 2,
-                        EndColumnIndex = 4
+                        StartRowIndex = 0,
+                        EndRowIndex = MirrorRowDevirAlinan,
+                        StartColumnIndex = 4,
+                        EndColumnIndex = 6
                     },
                     Top = new Border { Style = "SOLID", Width = 2, Color = ColorFromHex(0x0f766e) },
                     Bottom = new Border { Style = "SOLID", Width = 2, Color = borderColor },
@@ -438,7 +648,6 @@ namespace DukkanDefterOCR.Services
             return requests;
         }
 
-        /// <summary>RGB hex 0xRRGGBB → Google API Color (sRGB 0–1).</summary>
         private static Color ColorFromHex(uint rgb)
         {
             var r = (rgb >> 16) & 0xff;
@@ -450,43 +659,6 @@ namespace DukkanDefterOCR.Services
                 Green = g / 255f,
                 Blue = b / 255f
             };
-        }
-
-        private async Task<int> TryReadDevredenAkbilFromPreviousDayAsync(SheetsService service, string sheetName, CancellationToken ct)
-        {
-            if (!TryParseLedgerSheetDate(sheetName.Trim(), out var currentDate))
-                return 0;
-
-            var prevTitle = SanitizeSheetTitle(currentDate.AddDays(-1).ToString("dd.MM.yy", CultureInfo.InvariantCulture));
-            var escapedPrev = prevTitle.Replace("'", "''", StringComparison.Ordinal);
-
-            try
-            {
-                var range = $"'{escapedPrev}'!C1:D500";
-                var req = service.Spreadsheets.Values.Get(_options.SpreadsheetId, range);
-                var res = await req.ExecuteAsync(ct);
-                if (res.Values == null)
-                    return 0;
-
-                foreach (var row in res.Values)
-                {
-                    if (row.Count < 1)
-                        continue;
-                    var label = row[0]?.ToString()?.Trim();
-                    if (string.Equals(label, DevredenLabel, StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (row.Count >= 2 && TryParseIntCell(row[1], out var v))
-                            return v;
-                        return 0;
-                    }
-                }
-
-                return 0;
-            }
-            catch
-            {
-                return 0;
-            }
         }
 
         private static bool TryParseLedgerSheetDate(string name, out DateTime date)
